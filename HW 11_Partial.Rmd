@@ -1,0 +1,162 @@
+---
+title: "HW 11"
+author: "dani smith"
+date: "2023-11-13"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Figure: Income Category and Health Status
+```{r, Message = FALSE, warning= FALSE}
+library(tidycensus)
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(tidyr)
+library(grDevices)
+library(scales)
+library(RColorBrewer)
+
+BRFFS_2021 <- read_csv("/Users/iamda/Downloads/LLCP2021.csv")
+
+BRFFS_2021 <- BRFFS_2021|>
+  select(
+    `_SEX`,`_STATE`,`_AGEG5YR`,`_RACE`,`INCOME3`,`EDUCA`,`GENHLTH`,
+    `_HLTHPLN`,`_RFBMI5`,`CVDINFR4`,`CVDSTRK3`,`DIABETE4`,`_RFHYPE6`,
+    `_RFDRHV7`,`SMOKE100`,`PHYSHLTH`,`MENTHLTH`,`WEIGHT2`,`PREGNANT`)
+
+
+BRFFS_2021_Inc__Hlth_Filter <- BRFFS_2021|>
+  filter(INCOME3<12,GENHLTH<6)
+
+income_bins <- c(
+  .5,1.5,2.5,3.5,4.5,5.5,6.5,7.5,8.5,9.5,10.5,11.5)
+income_labels <- c(
+  "<$10k","$10-15k","$15-20k","$20-25k",
+  "$25-35k","$35-50k","$50-75k","$75-100k",
+  "$100-150k","$150-200k","$200k+")
+
+BRFFS_2021_Inc__Hlth_Filter$INCOME3 <- as.numeric(BRFFS_2021_Inc__Hlth_Filter$INCOME3)
+
+BRFFS_2021_Inc__Hlth_Filter$income_group <- cut(
+  BRFFS_2021_Inc__Hlth_Filter$INCOME3, breaks = income_bins, labels = income_labels, right = FALSE)
+
+total_counts <- BRFFS_2021_Inc__Hlth_Filter|>
+  group_by(income_group) |>
+  count()
+
+
+BRFFS_2021_Inc__Hlth_total <- merge(
+  BRFFS_2021_Inc__Hlth_Filter, total_counts, by = "income_group", suffixes = c("", "_total"))
+
+  
+BRFFS_2021_Inc__Hlth_total<- BRFFS_2021_Inc__Hlth_total|>
+  group_by(income_group,GENHLTH)|>
+  mutate(hlth_count = n())|>
+  ungroup()
+
+topinc_count <- BRFFS_2021_Inc__Hlth_total|>
+  filter(INCOME3 == "11")|>
+  group_by(INCOME3)|>
+  mutate(inc_count = n())|>
+  select(inc_count)
+
+exc_hlth_top_inc_count <- BRFFS_2021_Inc__Hlth_total|>
+  filter(INCOME3 == "11",GENHLTH == "1")|>
+  mutate(exc_inc_count = n())|>
+  select(exc_inc_count)
+
+annotation_value <- exc_hlth_top_inc_count$exc_inc_count/topinc_count$inc_count
+
+#print(annotation_value[1]*100)
+
+  BRFFS_2021_Inc__Hlth_total|>
+  na.omit()|>
+  ggplot(aes(x = income_group, fill = factor(GENHLTH))) +
+  geom_bar(position = "fill", stat = "count") +
+  labs(title = "Patient Income vs. General Health", x = "Income Level", y = "Reported Health Status")+
+  theme(axis.text.x = element_text(angle = 0, hjust = 0.5),  
+        axis.text.y = element_text(angle = 0, hjust = 1.1),
+        axis.ticks.x = element_blank()) +
+  guides(fill = guide_legend(title = "Health Ratings"),
+         shape = guide_legend(override.aes = list(size = 1)),
+         color = guide_legend(override.aes = list(size = 1)),
+         ) +
+    scale_fill_manual(values = c("#8FB58F","#B8CC9E","#ECE09E","#E3BE9E","#D4A4A4")
+                      ,labels =c("Excellent","Very Good","Good","Fair","Poor"))+
+  scale_y_continuous(labels = scales::percent_format(scale = 100)) +
+  coord_flip() +
+  theme(
+    legend.position = c(.95, .95),
+    legend.justification = c("right", "top"),
+    legend.box.just = "right",
+    legend.margin = margin(6, 6, 6, 6),
+    legend.title = element_text(size = 7),
+    legend.text = element_text(size = 5)
+    ) +
+  theme_bw() +
+  theme(legend.position = c(.95, .95),
+        legend.justification = c("right", "top"),
+        legend.box.just = "right",
+        legend.margin = margin(5, 5, 5, 5),
+        legend.title = element_text(size = 7),
+        legend.text = element_text(size = 6))+
+      annotate(
+    geom = "curve", x = 8, y = .6, xend = 10.9, yend = .8, 
+    curvature = .3, arrow = arrow(length = unit(2, "mm"))
+  ) +
+  annotate(geom = "text", x = 8, y = .48, label = "(34.10%)", hjust = "left")
+  
+```
+This figure looks at the proportion of reported general health ratings (from poor to excellent health) of patients within different income levels. The x axis indicates the percentage of total patients within an income level category, while the y axis identifies the income level categories for each bar. Within each stacked bar, you can identify the proportion of different health ratings that patients in that category reported.
+
+Looking at the plot, there's a consistent decrease in the proportion of patients reporting poor, fair, and good health as income level rises. Moreover, there's a noticeable increase in proportions for very good and excellent health as income level rises. This highlights a connection between patients income status and self-reported general health outcomes, with higher incomes potentially impacting better-graded self-reported health outcomes
+
+# Table: Health Status, Insured Status, and Overweight/Obese Outcomes
+```{r, message = FALSE,echo = TRUE, warning=FALSE}
+library(knitr)
+library(kableExtra)
+hlth_status_mapping <- c("Excellent","Very Good","Good","Fair","Poor")
+hlth_pln_mapping <- c("Insured","UnInsured")
+obesity_mapping <- c("No", "Yes")
+
+brffs_obesity_hlth_ins <- BRFFS_2021|>
+  select(`_HLTHPLN`,`GENHLTH`,`_RFBMI5`)|>
+  filter(`_HLTHPLN` %in% c(1,2), `GENHLTH` %in% c(1,2,3,4,5),`_RFBMI5` %in% c(1,2))
+
+obesity_hlth_ins_rename <- brffs_obesity_hlth_ins|>
+  mutate(Health_Status = factor(`GENHLTH`, levels = 1:5, labels = hlth_status_mapping),
+         Health_Plan_Enrollment = factor(`_HLTHPLN`, levels = 1:2, labels = hlth_pln_mapping),
+         Obesity = factor(`_RFBMI5`, levels = 1:2, labels = obesity_mapping))|>
+  select(Health_Status,Health_Plan_Enrollment,Obesity)
+
+
+format_obesity_hlth_ins <- obesity_hlth_ins_rename|>
+  group_by(Health_Status,`Health_Plan_Enrollment`,`Obesity`)|>
+  summarise(Count = n())
+
+pct_obesity_health_ins <- format_obesity_hlth_ins|>
+  pivot_wider(names_from = Obesity, values_from = Count, values_fill = 0)
+
+obesity_pct_table <-pct_obesity_health_ins|>
+  mutate(
+    `no_pct` = paste(round(No/(No + Yes) *100,2),"%", sep = " "),
+    `yes_pct` = paste(round(Yes/(No + Yes)*100,2),"%", sep = " ")
+  )|>
+  rename(`Overweight or Obese (No)` = no_pct, `Overweight or Obese (Yes)` = yes_pct)|>
+  select(-No,-Yes)
+ 
+ kable(obesity_pct_table, booktabs = TRUE, col.names = c(
+    'Health Status', 'Health Enrollment', 'Overweight or Obese (No)', 'Overweight or Obese (Yes)'))|>
+  kable_styling(bootstrap_options = c("striped","hover", "condensed"))|>
+  row_spec(0,bold = T)|>
+  row_spec(c(2,4,6,8),hline_after = T)
+
+```
+
+The table reports the percentages of patient's surveyed as overweight or obese and those surveyed as not overweight or obese, by health status and insured/uninsured status.This is meant to look at the connection between self-reported general health,health insurance enrollment, and overweight/obese outcomes among patients. 
+
+Notably, in all categories of health status and insured status, majority of patients were surveyed as overweight or obese; which appears consistent with American overweight/obesity data. In the table, it's clear that there are lower proportions of patients surveyed as overweight/obese with improvements in health status rating. Additionally, once health status improves from good to very good, the disparity between patients reported as overweight/obese within insured and uninsured groups begins to noticeably decrease. Interestingly, in every health status category, other than 'excellent', uninsured patients have lower rates of patient's reported as overweight/obese.
